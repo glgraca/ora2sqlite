@@ -13,9 +13,11 @@ Use: ora2sqlite -s oracle -u username -p password
   -u --username Oracle schema 
   -p --password Oracle password 
   -d --destination SQLite filename (defaults to the oracle schema name)
+  -v --views Copy views
+  -V --view-filter View filter
   -b --blobs Copy blobs 
   -c --clobs Copy clobs (LONG is treated as CLOB)
-  -f --filter Filter tables by name
+  -f --table-filter Filter tables by name
   -r --rows Max number of rows
   -I --indices Copy indices
   -F --fks Copy foreign keys
