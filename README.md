@@ -30,6 +30,7 @@ TODO:
 - Handle BLOBS, CLOBS, etc
 - Test dates and timestamps
 - Verify BFILEs (replace by filename)
-- Print some indication of progress
-- Optimise inserts
-- Filter out views and give option to include them (probably as tables, not views - also requires new filter)
+- ~~Print some indication of progress~~
+- ~~Optimise inserts~~
+- ~~Filter out views and give option to include them (probably as tables, not views - also requires new filter)~~
+- Add examples to the documentation
