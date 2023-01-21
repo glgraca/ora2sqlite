@@ -127,7 +127,6 @@ sub get_oracle_tables {
       my ($table_name, $column_name, $column_type, $nullable, $oracle_type)=@row;
       push @{$tables->{$table_name}}, {'name'=>$column_name, 'type'=>$column_type, 'nullable'=>$nullable, 'oracle_type'=>$oracle_type};
   };
-  print Dumper($tables);
 
   return $tables;
 };
@@ -202,7 +201,7 @@ sub create_sqlite_indices {
   $filter="and $filter" if $filter;
   
   my $query=qq(
-     select index_name, table_name, uniqueness, listagg(c.column_name,',') within group (order by column_position)
+    select index_name, table_name, uniqueness, listagg(c.column_name,',') within group (order by column_position)
     from user_indexes i
          natural join user_ind_columns c 
     where index_type='NORMAL' $filter

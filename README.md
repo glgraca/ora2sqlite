@@ -1,5 +1,11 @@
 # Export Oracle schema to SQLite
 
+This is a command-line tool to export Oracle schemas to an SQLite database.
+
+It does not automatically copy indices, foreign keys, or primary keys (use -F, -I, -P, or -A).
+
+You can indicate a filter using an SQL clause in the filter option (-f --filter). 
+
 ```sh
 Use: ora2sqlite -s oracle -u username -p password 
 
@@ -22,3 +28,5 @@ Use: ora2sqlite -s oracle -u username -p password
 TODO:
 
 - Handle BLOBS, CLOBS, etc
+- Test dates and timestamps
+- Verify BFILEs
