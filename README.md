@@ -42,7 +42,7 @@ Use: ora2sqlite -s oracle -u username -p password
 TODO:
 
 - ~~Handle BLOBS, CLOBS, etc~~
-- Test dates and timestamps
+- ~~Test dates and timestamps~~
 - ~~Verify BFILEs (replace by filename)~~
 - ~~Print some indication of progress~~
 - ~~Optimise inserts~~

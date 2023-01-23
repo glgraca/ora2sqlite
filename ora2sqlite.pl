@@ -69,6 +69,8 @@ EOD
   my $oracle=DBI->connect("dbi:Oracle://$oracle_database", $oracle_username, $oracle_password, {
     ReadOnly=>1, ora_piece_lob=>1, ora_piece_size=>10*1024*1024, LongReadLen=>1024*1024*1024, LongTruncOk=>1
   });
+  
+  $oracle->do(q(alter session set nls_timestamp_tz_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_timestamp_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_date_format = 'YYYY-MM-DD"T"HH24:MI:SS'));
 
