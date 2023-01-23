@@ -25,7 +25,7 @@ Use: ora2sqlite -s oracle -u username -p password
   -P --pks Copy primary keys
   -A Copy indices, fks, and pks (same as -PFI)
 
-  LONGs cannot be retrieved, so they are always set to null.
+  LONGs and BFILEs cannot be retrieved, so they are always set to null.
 
   Examples: 
   
@@ -43,7 +43,7 @@ TODO:
 
 - ~~Handle BLOBS, CLOBS, etc~~
 - Test dates and timestamps
-- Verify BFILEs (replace by filename)
+- ~~Verify BFILEs (replace by filename)~~
 - ~~Print some indication of progress~~
 - ~~Optimise inserts~~
 - ~~Filter out views and give option to include them (probably as tables, not views - also requires new filter)~~

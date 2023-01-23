@@ -28,7 +28,7 @@ use strict;
     -P --pks Copy primary keys
     -A Copy indices, fks, and pks (same as -PFI)
 
-    LONGs cannot be retrieved, so they are always set to null.
+    LONGs and BFILEs cannot be retrieved, so they are always set to null.
 
     Example: ora2sqlite -s server:1521/service -u data -p pass -d data.db -f "table_name in ('TEST')" -r 100
 EOD
@@ -66,7 +66,9 @@ EOD
 
   unlink $sqlite_filename;
 
-  my $oracle=DBI->connect("dbi:Oracle://$oracle_database", $oracle_username, $oracle_password, {ReadOnly=>1, LongReadLen=>1024*1024*1024, LongTruncOk=>1});
+  my $oracle=DBI->connect("dbi:Oracle://$oracle_database", $oracle_username, $oracle_password, {
+    ReadOnly=>1, ora_piece_lob=>1, ora_piece_size=>10*1024*1024, LongReadLen=>1024*1024*1024, LongTruncOk=>1
+  });
   $oracle->do(q(alter session set nls_timestamp_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_date_format = 'YYYY-MM-DD"T"HH24:MI:SS'));
 
@@ -173,7 +175,7 @@ sub copy_data {
         } else {
           'null'
         }
-      } elsif($_->{oracle_type} eq 'LONG') {
+      } elsif($_->{oracle_type} eq 'LONG' or $_->{oracle_type} eq 'BFILE') {
         'null'
       } else {
         $_->{name}
