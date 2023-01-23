@@ -69,7 +69,7 @@ EOD
   my $oracle=DBI->connect("dbi:Oracle://$oracle_database", $oracle_username, $oracle_password, {
     ReadOnly=>1, ora_piece_lob=>1, ora_piece_size=>10*1024*1024, LongReadLen=>1024*1024*1024, LongTruncOk=>1
   });
-  
+
   $oracle->do(q(alter session set nls_timestamp_tz_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_timestamp_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_date_format = 'YYYY-MM-DD"T"HH24:MI:SS'));
@@ -81,50 +81,49 @@ EOD
   create_sqlite_tables($oracle, $sqlite, $tables, $copy_primary_keys, $copy_foreign_keys);
   copy_data($oracle, $sqlite, $tables, $copy_blobs, $copy_clobs, $copy_xml, $max_rows);
   create_sqlite_indices($oracle, $sqlite, $table_name_filter, $view_name_filter) if $copy_indices;
+}
 
   # { table => [ { id=>123, name=>column_name, type=>data_type, nullable=>'Y|N', oracle_type=>oracle_data_type } ]... }
-  sub get_oracle_tables {
-    my ($oracle, $filter, $view_filter)=@_;
-    my $tables={};
+sub get_oracle_tables {
+  my ($oracle, $filter, $view_filter)=@_;
+  my $tables={};
 
-    $filter="where $filter" if $filter;
-    $view_filter="where $view_filter" if $view_filter;
+  $filter="where $filter" if $filter;
+  $view_filter="where $view_filter" if $view_filter;
 
-    my $query=qq(
-      select lower(table_name), 
-        row_number() over (partition by table_name order by column_id) column_id,
-        lower(column_name),
-        case 
-          when data_type like 'TIMESTAMP%' then 'DATETIME'
-          when data_type like 'DATE' then 'DATETIME'
-          when data_type='NUMBER' and data_scale=0 then 'INTEGER'
-          when data_type in ('FLOAT', 'NUMBER') then 'REAL'
-          when data_type in ('CHAR', 'NCHAR', 'VARCHAR2', 'NVARCHAR2') then 'TEXT'
-          when data_type in ('RAW', 'BLOB') then 'BLOB'
-          when data_type in ('CLOB', 'LONG') then 'TEXT'
-          when data_type='XMLTYPE' then 'TEXT'
-          else 'TEXT'
-          end data_type,
-          nullable,
-          data_type oracle_data_type
-      from user_tab_cols       
-      where hidden_column='NO'
-            and (table_name in (select table_name from user_tables $filter) 
-                or table_name in (select view_name from user_views $view_filter))
-      order by table_name, column_id
-    );
+  my $query=qq(
+    select lower(table_name), 
+      row_number() over (partition by table_name order by column_id) column_id,
+      lower(column_name),
+      case 
+        when data_type like 'TIMESTAMP%' then 'DATETIME'
+        when data_type like 'DATE' then 'DATETIME'
+        when data_type='NUMBER' and data_scale=0 then 'INTEGER'
+        when data_type in ('FLOAT', 'NUMBER') then 'REAL'
+        when data_type in ('CHAR', 'NCHAR', 'VARCHAR2', 'NVARCHAR2') then 'TEXT'
+        when data_type in ('RAW', 'BLOB') then 'BLOB'
+        when data_type in ('CLOB', 'LONG') then 'TEXT'
+        when data_type='XMLTYPE' then 'TEXT'
+        else 'TEXT'
+        end data_type,
+        nullable,
+        data_type oracle_data_type
+    from user_tab_cols       
+    where hidden_column='NO'
+          and (table_name in (select table_name from user_tables $filter) 
+              or table_name in (select view_name from user_views $view_filter))
+    order by table_name, column_id
+  );
 
-    my $st=$oracle->prepare($query);
-    $st->execute();
-    while(my @row=$st->fetchrow_array()) {
-        my ($table_name, $column_id, $column_name, $column_type, $nullable, $oracle_type)=@row;
-        push @{$tables->{$table_name}}, {'id'=>$column_id, 'name'=>$column_name, 'type'=>$column_type, 'nullable'=>$nullable, 'oracle_type'=>$oracle_type};
-    };
-
-    return $tables;
+  my $st=$oracle->prepare($query);
+  $st->execute();
+  while(my @row=$st->fetchrow_array()) {
+      my ($table_name, $column_id, $column_name, $column_type, $nullable, $oracle_type)=@row;
+      push @{$tables->{$table_name}}, {'id'=>$column_id, 'name'=>$column_name, 'type'=>$column_type, 'nullable'=>$nullable, 'oracle_type'=>$oracle_type};
   };
 
-}
+  return $tables;
+};
 
 sub create_sqlite_tables {
   my ($oracle, $sqlite, $tables, $copy_primary_keys, $copy_foreign_keys)=@_;
