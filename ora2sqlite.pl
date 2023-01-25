@@ -26,8 +26,8 @@ use strict;
     -I --indices Copy indices
     -F --fks Copy foreign keys
     -P --pks Copy primary keys
-    -U --ucs Copy unique constraints
-    -A Copy indices, fks, and pks (same as -PFI)
+    -U --uks Copy unique keys
+    -A Copy indices, fks, pks, and uks (same as -PFIK)
 
     LONGs and BFILEs cannot be retrieved, so they are always set to null.
 
@@ -123,7 +123,7 @@ sub get_oracle_tables {
   $st->execute();
   while(my @row=$st->fetchrow_array()) {
     my ($table_name, $column_id, $column_name, $column_type, $nullable, $oracle_type)=@row;
-    push @{$tables->{$table_name}}, {'id'=>$column_id, 'name'=>$column_name, 'type'=>$column_type, 'nullable'=>$nullable, 'oracle_type'=>$oracle_type};
+    push @{$tables->{$table_name}}, {'id'=>$column_id, 'name'=>"$column_name", 'type'=>$column_type, 'nullable'=>$nullable, 'oracle_type'=>$oracle_type};
   };
 
   return $tables;
@@ -138,7 +138,7 @@ sub create_sqlite_tables {
     my $columns=$tables->{$table_name};
 
     my $create_cmd="create table $table_name (";
-    $create_cmd.=join ',', map { $_->{name}.' '.$_->{type}.' '.($_->{nullable} eq 'Y'?'':'NOT NULL') } @$columns;
+    $create_cmd.=join ',', map { '['.$_->{name}.'] '.$_->{type}.' '.($_->{nullable} eq 'Y'?'':'NOT NULL') } @$columns;
     if($copy_primary_keys) {
       my $pk=get_primary_key($oracle, $table_name);
       $create_cmd.=", primary key ($pk)" if $pk;
@@ -251,7 +251,7 @@ sub create_sqlite_indices {
   $filter="and $filter" if $filter;
   
   my $query=qq(
-    select index_name, table_name, uniqueness, listagg(c.column_name,',') within group (order by column_position)
+    select index_name, table_name, uniqueness, listagg(c.column_name,',') within group (order by column_position), count(1) over ()
     from user_indexes i
          natural join user_ind_columns c 
     where index_type='NORMAL' $filter
@@ -260,11 +260,14 @@ sub create_sqlite_indices {
 
   my $st=$oracle->prepare($query);
   $st->execute();
+  my $current_index=1;
   while(my @row=$st->fetchrow_array()) {
-    my ($index_name, $table_name, $uniqueness, $column_names)=@row;
+    my ($index_name, $table_name, $uniqueness, $column_names, $index_count)=@row;
     $uniqueness='' if $uniqueness ne 'UNIQUE';
     my $create_cmd="create $uniqueness index $index_name on $table_name ($column_names)";
 
+    print "  $index_name on $table_name ($current_index/$index_count)\n";
+    $current_index++;
     $sqlite->do($create_cmd);
   };
 }
@@ -311,8 +314,7 @@ sub get_unique_keys {
   $st->execute();
   my $uks=[];
   while(my @row=$st->fetchrow_array()) {
-    my ($columns)=@row;
-    push @$uks, $columns;
+    push @$uks, $row[0];
   }
   return $uks;
 }

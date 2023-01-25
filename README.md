@@ -23,7 +23,8 @@ Use: ora2sqlite -s oracle -u username -p password
   -I --indices Copy indices
   -F --fks Copy foreign keys
   -P --pks Copy primary keys
-  -A Copy indices, fks, and pks (same as -PFI)
+  -U --uks Copy unique keys
+  -A Copy indices, fks, pks, and uks (same as -PFIK)
 
   LONGs and BFILEs cannot be retrieved, so they are always set to null.
 
