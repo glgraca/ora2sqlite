@@ -48,3 +48,4 @@ TODO:
 - ~~Optimise inserts~~
 - ~~Filter out views and give option to include them (probably as tables, not views - also requires new filter)~~
 - ~~Add examples to the documentation~~
+- ~~Copy unique constraints~~

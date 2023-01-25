@@ -26,6 +26,7 @@ use strict;
     -I --indices Copy indices
     -F --fks Copy foreign keys
     -P --pks Copy primary keys
+    -U --ucs Copy unique constraints
     -A Copy indices, fks, and pks (same as -PFI)
 
     LONGs and BFILEs cannot be retrieved, so they are always set to null.
@@ -35,7 +36,7 @@ EOD
 
   my ($oracle_database, $oracle_username, $oracle_password, $sqlite_filename, 
       $copy_views, $view_name_filter, $table_name_filter, $max_rows,
-      $copy_foreign_keys, $copy_primary_keys, $copy_all_constraints,
+      $copy_foreign_keys, $copy_primary_keys, $copy_unique_keys, $copy_all_constraints,
       $copy_blobs, $copy_clobs, $copy_xml, $copy_indices);
 
   GetOptions(
@@ -53,14 +54,17 @@ EOD
     'I|indices'=>\$copy_indices,
     'F|fks'=>\$copy_foreign_keys,
     'P|pks'=>\$copy_primary_keys,
+    'U|uks'=>\$copy_unique_keys,
     'A'=>\$copy_all_constraints
   ) or die $banner;
 
   die $banner unless defined $oracle_database && defined $oracle_username && defined $oracle_password;
 
+  # default filname is name of oracle schema
   $sqlite_filename="${oracle_username}.db" if !defined $sqlite_filename;
 
-  $copy_indices=1, $copy_foreign_keys=1, $copy_primary_keys=1 if $copy_all_constraints;
+  # Copy all constraints if -A
+  $copy_indices=1, $copy_foreign_keys=1, $copy_primary_keys=1, $copy_unique_keys=1 if $copy_all_constraints;
 
   $view_name_filter='1=2' if !$copy_views;
 
@@ -78,12 +82,12 @@ EOD
   $sqlite->{sqlite_unicode} = 1;
 
   my $tables=get_oracle_tables($oracle, $table_name_filter, $view_name_filter);
-  create_sqlite_tables($oracle, $sqlite, $tables, $copy_primary_keys, $copy_foreign_keys);
+  create_sqlite_tables($oracle, $sqlite, $tables, $copy_primary_keys, $copy_foreign_keys, $copy_unique_keys);
   copy_data($oracle, $sqlite, $tables, $copy_blobs, $copy_clobs, $copy_xml, $max_rows);
   create_sqlite_indices($oracle, $sqlite, $table_name_filter, $view_name_filter) if $copy_indices;
 }
 
-  # { table => [ { id=>123, name=>column_name, type=>data_type, nullable=>'Y|N', oracle_type=>oracle_data_type } ]... }
+# { table => [ { id=>123, name=>column_name, type=>data_type, nullable=>'Y|N', oracle_type=>oracle_data_type } ]... }
 sub get_oracle_tables {
   my ($oracle, $filter, $view_filter)=@_;
   my $tables={};
@@ -118,15 +122,15 @@ sub get_oracle_tables {
   my $st=$oracle->prepare($query);
   $st->execute();
   while(my @row=$st->fetchrow_array()) {
-      my ($table_name, $column_id, $column_name, $column_type, $nullable, $oracle_type)=@row;
-      push @{$tables->{$table_name}}, {'id'=>$column_id, 'name'=>$column_name, 'type'=>$column_type, 'nullable'=>$nullable, 'oracle_type'=>$oracle_type};
+    my ($table_name, $column_id, $column_name, $column_type, $nullable, $oracle_type)=@row;
+    push @{$tables->{$table_name}}, {'id'=>$column_id, 'name'=>$column_name, 'type'=>$column_type, 'nullable'=>$nullable, 'oracle_type'=>$oracle_type};
   };
 
   return $tables;
 };
 
 sub create_sqlite_tables {
-  my ($oracle, $sqlite, $tables, $copy_primary_keys, $copy_foreign_keys)=@_;
+  my ($oracle, $sqlite, $tables, $copy_primary_keys, $copy_foreign_keys, $copy_unique_keys)=@_;
 
   print "Creating tables\n";
 
@@ -144,6 +148,12 @@ sub create_sqlite_tables {
       for my $fk (@$fks) {
         my ($columns, $referenced_table, $referenced_columns)=@$fk;
         $create_cmd.=", foreign key ($columns) references $referenced_table($referenced_columns)";
+      }
+    }
+    if($copy_unique_keys) {
+      my $uks=get_unique_keys($oracle, $table_name);
+      for my $uk (@$uks) {
+        $create_cmd.=", unique($uk)";
       }
     }
     $create_cmd.=')';
@@ -259,6 +269,7 @@ sub create_sqlite_indices {
   };
 }
 
+# [['col1, col2', 'ref_table', 'ref_col1, 'ref_col2'], [...]]
 sub get_foreign_keys {
   my ($oracle, $table_name)=@_;
 
@@ -281,6 +292,29 @@ sub get_foreign_keys {
     push @$fks, [$columns, $referenced_table, $referenced_columns];
   }
   return $fks;
+}
+
+# ['col1,col2', 'cols3']
+sub get_unique_keys {
+  my ($oracle, $table_name)=@_;
+
+  my $query=qq(
+    select listagg(distinct column_name,',') within group (order by position)
+    from user_cons_columns
+         natural join user_constraints
+    where constraint_type='U' and table_name=upper(?)
+    group by constraint_name
+  );
+
+  my $st=$oracle->prepare($query);
+  $st->bind_param(1, $table_name);
+  $st->execute();
+  my $uks=[];
+  while(my @row=$st->fetchrow_array()) {
+    my ($columns)=@row;
+    push @$uks, $columns;
+  }
+  return $uks;
 }
 
 END {
