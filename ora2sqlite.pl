@@ -227,8 +227,7 @@ sub copy_data {
 }
 
 sub get_primary_key {
-  my $oracle=shift;
-  my $table_name=shift;
+  my ($oracle, $table_name)=@_;
 
   my $query=qq(
     select listagg(cols.column_name,',')
