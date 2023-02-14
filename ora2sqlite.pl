@@ -79,6 +79,11 @@ EOD
   $oracle->do(q(alter session set nls_date_format = 'YYYY-MM-DD"T"HH24:MI:SS'));
 
   my $sqlite=DBI->connect("dbi:SQLite:dbname=$sqlite_filename",'','');
+  $sqlite->do('pragma journal_mode = off');
+  $sqlite->do('pragma synchronous = off');
+  $sqlite->do('pragma locking_mode = exclusive');
+  $sqlite->do('pragma mmap_size = 1073741824');
+  $sqlite->do('pragma page_size = 65536');
   $sqlite->{sqlite_unicode} = 1;
 
   my $tables=get_oracle_tables($oracle, $table_name_filter, $view_name_filter);
