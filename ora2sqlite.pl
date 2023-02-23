@@ -8,6 +8,8 @@ use open ':std', ':encoding(utf8)';
 use utf8;
 use strict;
 
+$Data::Dumper::Terse = 1;
+
 {
   my $banner=<<EOD;
   Use: ora2sqlite -s oracle -u username -p password [-d sqlite] [-b] [-c] 
@@ -71,25 +73,31 @@ EOD
   unlink $sqlite_filename;
 
   my $oracle=DBI->connect("dbi:Oracle://$oracle_database", $oracle_username, $oracle_password, {
-    ReadOnly=>1, ora_piece_lob=>1, ora_piece_size=>10*1024*1024, LongReadLen=>1024*1024*1024, LongTruncOk=>1
+    ReadOnly=>1, LongReadLen=>1024*1024*1024, LongTruncOk=>1, PrintWarn=>1, RaiseError=>1
   });
+  #$oracle->do(q[begin portal.wwctx_api.set_context( p_user_name => 'public', p_password => ''); end;]);
 
   $oracle->do(q(alter session set nls_timestamp_tz_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_timestamp_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_date_format = 'YYYY-MM-DD"T"HH24:MI:SS'));
 
-  my $sqlite=DBI->connect("dbi:SQLite:dbname=$sqlite_filename",'','');
-  $sqlite->do('pragma journal_mode = off');
+  my $sqlite=DBI->connect("dbi:SQLite:dbname=$sqlite_filename",'','', {AutoCommit=>1, PrintWarn=>1, RaiseError=>1});
+  $sqlite->do('pragma journal_mode = MEMORY');
   $sqlite->do('pragma synchronous = off');
   $sqlite->do('pragma locking_mode = exclusive');
-  $sqlite->do('pragma mmap_size = 1073741824');
-  $sqlite->do('pragma page_size = 65536');
+  $sqlite->do('pragma page_size = 4096');
   $sqlite->{sqlite_unicode} = 1;
 
   my $tables=get_oracle_tables($oracle, $table_name_filter, $view_name_filter);
   create_sqlite_tables($oracle, $sqlite, $tables, $copy_primary_keys, $copy_foreign_keys, $copy_unique_keys);
   copy_data($oracle, $sqlite, $tables, $copy_blobs, $copy_clobs, $copy_xml, $max_rows);
   create_sqlite_indices($oracle, $sqlite, $table_name_filter, $view_name_filter) if $copy_indices;
+}
+
+sub sqlite_table_name {
+  my $table_name=shift;
+  $table_name=~s/\$/_/g;
+  return "[$table_name]";
 }
 
 # { table => [ { id=>123, name=>column_name, type=>data_type, nullable=>'Y|N', oracle_type=>oracle_data_type } ]... }
@@ -111,7 +119,7 @@ sub get_oracle_tables {
         when data_type in ('FLOAT', 'NUMBER') then 'REAL'
         when data_type in ('CHAR', 'NCHAR', 'VARCHAR2', 'NVARCHAR2') then 'TEXT'
         when data_type in ('RAW', 'BLOB') then 'BLOB'
-        when data_type in ('CLOB', 'LONG') then 'TEXT'
+        when data_type in ('CLOB', 'LONG', 'LONG RAW') then 'TEXT'
         when data_type='XMLTYPE' then 'TEXT'
         else 'TEXT'
         end data_type,
@@ -119,6 +127,7 @@ sub get_oracle_tables {
         data_type oracle_data_type
     from user_tab_cols       
     where hidden_column='NO'
+          and column_name not like 'SYS_NC%'
           and (table_name in (select table_name from user_tables $filter) 
               or table_name in (select view_name from user_views $view_filter))
     order by table_name, column_id
@@ -128,7 +137,12 @@ sub get_oracle_tables {
   $st->execute();
   while(my @row=$st->fetchrow_array()) {
     my ($table_name, $column_id, $column_name, $column_type, $nullable, $oracle_type)=@row;
-    push @{$tables->{$table_name}}, {'id'=>$column_id, 'name'=>"$column_name", 'type'=>$column_type, 'nullable'=>$nullable, 'oracle_type'=>$oracle_type};
+    push @{$tables->{$table_name}}, {
+      'id'=>$column_id,
+      'name'=>"$column_name",
+      'type'=>$column_type,
+      'nullable'=>$nullable,
+      'oracle_type'=>$oracle_type};
   };
 
   return $tables;
@@ -141,8 +155,9 @@ sub create_sqlite_tables {
 
   for my $table_name (keys %$tables) {
     my $columns=$tables->{$table_name};
+    my $sqlite_table_name=sqlite_table_name($table_name);
 
-    my $create_cmd="create table $table_name (";
+    my $create_cmd="create table $sqlite_table_name (";
     $create_cmd.=join ',', map { '['.$_->{name}.'] '.$_->{type}.' '.($_->{nullable} eq 'Y'?'':'NOT NULL') } @$columns;
     if($copy_primary_keys) {
       my $pk=get_primary_key($oracle, $table_name);
@@ -162,6 +177,7 @@ sub create_sqlite_tables {
       }
     }
     $create_cmd.=')';
+    print "  $table_name\n";
     $sqlite->do($create_cmd);
   }
 }
@@ -177,13 +193,14 @@ sub copy_data {
   my $current_table=1;
 
   for my $table_name (keys %$tables) {
-    $sqlite->do('begin transaction');
+    my $sqlite_table_name=sqlite_table_name($table_name);
+    $oracle->{LongReadLen}=256*1024*1024;
     print "  $table_name ($current_table/$table_count)\n";
     my $columns=$tables->{$table_name};
     my $select_columns=join ',', map {
       if(!$copy_blobs and $_->{type} eq 'BLOB') {
         'null'
-      } elsif(!$copy_clobs and ($_->{oracle_type} eq 'RAW' or $_->{oracle_type} eq 'CLOB')) {
+      } elsif(!$copy_clobs and $_->{oracle_type} eq 'CLOB') {
         'null'
       } elsif($_->{oracle_type} eq 'XMLTYPE') {
         if($copy_xml) {
@@ -191,16 +208,23 @@ sub copy_data {
         } else {
           'null'
         }
-      } elsif($_->{oracle_type} eq 'LONG' or $_->{oracle_type} eq 'BFILE') {
+      } elsif($_->{oracle_type} eq 'BFILE') {
         'null'
+      } elsif($_->{oracle_type} =~ /^LONG/) {
+        $oracle->{LongReadLen}=10*1024*1024;
       } else {
-        $_->{name}
+        if($_->{oracle_type} eq 'RAW') {
+          'to_blob('.$_->{name}.')';
+          $_->{name}
+        } else {
+          $_->{name}
+        }
       }
     } @$columns;
     my $select_cmd="select $select_columns from $table_name $max_rows";
     my $st=$oracle->prepare($select_cmd);
     $st->execute();
-    my $insert_cmd="insert into $table_name values (". (join ',', map { '?' } @$columns).')';
+    my $insert_cmd="insert into $sqlite_table_name values (". (join ',', map { '?' } @$columns).')';
     my $insert_st=$sqlite->prepare($insert_cmd);
     while(my @row=$st->fetchrow_array()) {
       for my $column (@$columns) {
@@ -221,12 +245,17 @@ sub copy_data {
           }
         # All other types
         } else {
-          $insert_st->bind_param($id, $row[$id-1]);
+          my $v=$row[$id-1];
+          # This is for custom types
+          if(ref($v) eq 'ARRAY') {
+            $v=Dumper($v);
+          }
+          $insert_st->bind_param($id, $v);
         }
       }
       $insert_st->execute();
     } 
-    $sqlite->do('end transaction');
+    $st->finish();
     $current_table++;
   }
 }
@@ -235,7 +264,7 @@ sub get_primary_key {
   my ($oracle, $table_name)=@_;
 
   my $query=qq(
-    select listagg(cols.column_name,',')
+    select listagg('['||cols.column_name||']',',') within group (order by cols.position)
     from user_constraints cons
          inner join user_cons_columns cols on cons.constraint_name = cols.constraint_name and cons.owner = cols.owner
     where cols.table_name = upper(?)
@@ -243,8 +272,55 @@ sub get_primary_key {
     order by cols.position
   );
 
-  my $pk=$oracle->selectrow_array($query, undef, $table_name);
+  my $pk=$oracle->selectrow_array($query, undef, sqlite_table_name($table_name));
   return $pk;
+}
+
+# [['col1, col2', 'ref_table', 'ref_col1, 'ref_col2'], [...]]
+sub get_foreign_keys {
+  my ($oracle, $table_name)=@_;
+
+  my $query=qq(
+    select distinct a.cols, t.table_name, b.cols, f.constraint_name
+    from (select owner, table_name, constraint_name, listagg('['||column_name||']', ',') within group (order by position) over (partition by owner, constraint_name) cols from user_cons_columns) a
+         inner join user_constraints f on a.owner = f.owner and a.constraint_name = f.constraint_name
+         inner join user_constraints t on f.r_owner = t.owner and f.r_constraint_name = t.constraint_name
+         inner join (select owner, constraint_name, listagg('['||column_name||']', ',') within group (order by position) over (partition by owner, constraint_name) cols from user_cons_columns) b on  b.owner = t.owner and b.constraint_name = t.constraint_name
+    where f.constraint_type = 'R' and a.table_name=upper(?)
+  );
+
+  my $st=$oracle->prepare($query);
+  $st->bind_param(1, $table_name);
+  $st->execute();
+  my $fks=[];
+  while(my @row=$st->fetchrow_array()) {
+    my ($columns, $referenced_table, $referenced_columns)=@row;
+    push @$fks, [$columns, sqlite_table_name($referenced_table), $referenced_columns];
+  }
+  return $fks;
+}
+
+# ['col1,col2', 'cols3']
+sub get_unique_keys {
+  my ($oracle, $table_name)=@_;
+
+  my $query=qq(
+    select distinct cols
+    from (select owner, constraint_name, table_name, listagg('['||column_name||']',',') within group (order by position) over (partition by table_name, constraint_name) cols 
+          from user_cons_columns 
+          where column_name not like 'SYS_NC%') 
+         natural join user_constraints  
+    where  constraint_type='U' and table_name=upper(?)
+  );
+
+  my $st=$oracle->prepare($query);
+  $st->bind_param(1, $table_name);
+  $st->execute();
+  my $uks=[];
+  while(my @row=$st->fetchrow_array()) {
+    push @$uks, $row[0];
+  }
+  return $uks;
 }
 
 sub create_sqlite_indices {
@@ -255,7 +331,7 @@ sub create_sqlite_indices {
   $filter="and $filter" if $filter;
   
   my $query=qq(
-    select index_name, table_name, uniqueness, listagg(c.column_name,',') within group (order by column_position), count(1) over ()
+    select index_name, table_name, uniqueness, listagg('['||c.column_name||']',',') within group (order by column_position), count(1) over ()
     from user_indexes i
          natural join user_ind_columns c 
     where index_type='NORMAL' $filter
@@ -267,60 +343,17 @@ sub create_sqlite_indices {
   my $current_index=1;
   while(my @row=$st->fetchrow_array()) {
     my ($index_name, $table_name, $uniqueness, $column_names, $index_count)=@row;
+    my $sqlite_table_name=sqlite_table_name($table_name);
     $uniqueness='' if $uniqueness ne 'UNIQUE';
-    my $create_cmd="create $uniqueness index $index_name on $table_name ($column_names)";
+    my $create_cmd="create $uniqueness index $index_name on $sqlite_table_name ($column_names)";
 
     print "  $index_name on $table_name ($current_index/$index_count)\n";
     $current_index++;
-    $sqlite->do($create_cmd);
+    eval {
+      $sqlite->do($create_cmd);
+    };
+    warn $@ if $@;
   };
-}
-
-# [['col1, col2', 'ref_table', 'ref_col1, 'ref_col2'], [...]]
-sub get_foreign_keys {
-  my ($oracle, $table_name)=@_;
-
-  my $query=qq(
-    select listagg(distinct a.column_name,',') within group (order by a.position), t.table_name, listagg(distinct b.column_name,',') within group (order by b.position)
-    from user_cons_columns a
-         inner join user_constraints f on a.owner = f.owner and a.constraint_name = f.constraint_name
-         inner join user_constraints t on f.r_owner = t.owner and f.r_constraint_name = t.constraint_name
-         inner join user_cons_columns b on  b.owner = t.owner and b.constraint_name = t.constraint_name
-    where f.constraint_type = 'R' and a.table_name=upper(?)
-    group by a.table_name, f.constraint_name, t.constraint_name, t.table_name
-  );
-
-  my $st=$oracle->prepare($query);
-  $st->bind_param(1, $table_name);
-  $st->execute();
-  my $fks=[];
-  while(my @row=$st->fetchrow_array()) {
-    my ($columns, $referenced_table, $referenced_columns)=@row;
-    push @$fks, [$columns, $referenced_table, $referenced_columns];
-  }
-  return $fks;
-}
-
-# ['col1,col2', 'cols3']
-sub get_unique_keys {
-  my ($oracle, $table_name)=@_;
-
-  my $query=qq(
-    select listagg(distinct column_name,',') within group (order by position)
-    from user_cons_columns
-         natural join user_constraints
-    where constraint_type='U' and table_name=upper(?)
-    group by constraint_name
-  );
-
-  my $st=$oracle->prepare($query);
-  $st->bind_param(1, $table_name);
-  $st->execute();
-  my $uks=[];
-  while(my @row=$st->fetchrow_array()) {
-    push @$uks, $row[0];
-  }
-  return $uks;
 }
 
 END {
