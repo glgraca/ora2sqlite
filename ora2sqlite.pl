@@ -62,7 +62,7 @@ EOD
 
   die $banner unless defined $oracle_database && defined $oracle_username && defined $oracle_password;
 
-  # default filname is name of oracle schema
+  # default filename is name of oracle schema
   $sqlite_filename="${oracle_username}.db" if !defined $sqlite_filename;
 
   # Copy all constraints if -A
@@ -75,8 +75,6 @@ EOD
   my $oracle=DBI->connect("dbi:Oracle://$oracle_database", $oracle_username, $oracle_password, {
     ReadOnly=>1, LongReadLen=>1024*1024*1024, LongTruncOk=>1, PrintWarn=>1, RaiseError=>1
   });
-  #$oracle->do(q[begin portal.wwctx_api.set_context( p_user_name => 'public', p_password => ''); end;]);
-
   $oracle->do(q(alter session set nls_timestamp_tz_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_timestamp_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_date_format = 'YYYY-MM-DD"T"HH24:MI:SS'));
