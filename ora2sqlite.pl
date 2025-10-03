@@ -79,11 +79,12 @@ EOD
   $oracle->do(q(alter session set nls_timestamp_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_date_format = 'YYYY-MM-DD"T"HH24:MI:SS'));
 
-  my $sqlite=DBI->connect("dbi:SQLite:dbname=$sqlite_filename",'','', {AutoCommit=>1, PrintWarn=>1, RaiseError=>1});
+  my $sqlite=DBI->connect("dbi:SQLite:dbname=$sqlite_filename",'','', {PrintWarn=>1, RaiseError=>1});
   $sqlite->do('pragma journal_mode = MEMORY');
   $sqlite->do('pragma synchronous = off');
   $sqlite->do('pragma locking_mode = exclusive');
   $sqlite->do('pragma page_size = 4096');
+  $sqlite->{AutoCommit} = 0;
   $sqlite->{sqlite_unicode} = 1;
 
   my $tables=get_oracle_tables($oracle, $table_name_filter, $view_name_filter);
@@ -254,6 +255,7 @@ sub copy_data {
       $insert_st->execute();
     } 
     $st->finish();
+    $sqlite->commit();
     $current_table++;
   }
 }
