@@ -84,7 +84,7 @@ EOD
   $sqlite->do('pragma synchronous = off');
   $sqlite->do('pragma locking_mode = exclusive');
   $sqlite->do('pragma page_size = 4096');
-  $sqlite->{AutoCommit} = 0;
+  $sqlite->{AutoCommit} = 1;
   $sqlite->{sqlite_unicode} = 1;
 
   my $tables=get_oracle_tables($oracle, $table_name_filter, $view_name_filter);
@@ -225,6 +225,7 @@ sub copy_data {
     $st->execute();
     my $insert_cmd="insert into $sqlite_table_name values (". (join ',', map { '?' } @$columns).')';
     my $insert_st=$sqlite->prepare($insert_cmd);
+    $sqlite->begin_work();
     while(my @row=$st->fetchrow_array()) {
       for my $column (@$columns) {
         my $id=$column->{id};
