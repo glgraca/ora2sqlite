@@ -78,12 +78,14 @@ EOD
   $oracle->do(q(alter session set nls_timestamp_tz_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_timestamp_format = 'YYYY-MM-DD"T"HH24:MI:SS.ff3"Z"'));
   $oracle->do(q(alter session set nls_date_format = 'YYYY-MM-DD"T"HH24:MI:SS'));
+  $oracle->{RowCacheSize} = 4096;
 
   my $sqlite=DBI->connect("dbi:SQLite:dbname=$sqlite_filename",'','', {PrintWarn=>1, RaiseError=>1});
   $sqlite->do('pragma journal_mode = MEMORY');
   $sqlite->do('pragma synchronous = off');
   $sqlite->do('pragma locking_mode = exclusive');
   $sqlite->do('pragma page_size = 4096');
+  $sqlite->do('pragma cache_size = 4000');
   $sqlite->{AutoCommit} = 1;
   $sqlite->{sqlite_unicode} = 1;
 
